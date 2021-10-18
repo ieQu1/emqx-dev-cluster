@@ -1,0 +1,143 @@
+#!/bin/bash
+set -euo pipefail
+
+[ -z ${LOG_LEVEL+x}    ] && export LOG_LEVEL=notice
+[ -z ${N_NODES+x}      ] && export N_NODES=10
+[ -z ${N_CORE_NODES+x} ] && export N_CORE_NODES=3
+
+host() {
+    echo -n "n${1}.local"
+}
+
+node() {
+    echo -n "emqx@$(host $1)"
+}
+
+build() {
+    [ "${1}" -eq "1" ] && echo "build: ."
+}
+
+CORE_NODES=$(for i in $(seq 1 $N_CORE_NODES); do
+                 node $i
+                 [ $i -eq $N_CORE_NODES ] || echo -n ','
+             done)
+
+container() {
+    cat <<EOF
+  emqx${1}:
+    $(build $1)
+    image: emqx
+    hostname: $(host $1)
+    networks:
+      backplane:
+        aliases:
+          - $(host $1)
+
+    environment:
+    - "EMQX_LOG__CONSOLE_HANDLER__ENABLE=true"
+    - "EMQX_LOG__CONSOLE_HANDLER__LEVEL=${LOG_LEVEL}"
+    - "EMQX_NODE__NAME=$(node $1)"
+    - "EMQX_CLUSTER__DB_BACKEND=rlog"
+    - "EMQX_CLUSTER__DISCOVERY_STRATEGY=static"
+    - "EMQX_CLUSTER__STATIC__SEEDS=[${CORE_NODES}]"
+EOF
+}
+
+core() {
+    container $1
+}
+
+replicant() {
+    container $1
+    cat <<EOF
+    - "EMQX_CLUSTER__RLOG__ROLE=replicant"
+    - "EMQX_CLUSTER__RLOG__CORE_NODES=${CORE_NODES}"
+EOF
+}
+
+create_dockerfiles() {
+    # EMQ X dockerfile
+    [ -f "Dockerfile" ] ||
+        cat <<EOF > Dockerfile
+FROM ubuntu:21.04
+COPY _build/emqx/rel/emqx/bin /opt/emqx/bin
+COPY _build/emqx/rel/emqx/erts-11.1.8 /opt/emqx/erts-11.1.8
+COPY _build/emqx/rel/emqx/etc /opt/emqx/etc
+COPY _build/emqx/rel/emqx/lib /opt/emqx/lib
+COPY _build/emqx/rel/emqx/plugins /opt/emqx/plugins
+COPY _build/emqx/rel/emqx/releases /opt/emqx/releases
+
+WORKDIR /opt/emqx
+
+CMD /opt/emqx/bin/emqx foreground
+EOF
+    # Haproxy dockerfile
+    mkdir -p haproxy
+    pushd haproxy
+    [ -f "Dockerfile" ] ||
+        cat <<EOF > Dockerfile
+FROM haproxy:1.7
+COPY haproxy.cfg /usr/local/etc/haproxy/haproxy.cfg
+EOF
+
+    [ -f "haproxy.cfg" ] ||
+        cat <<EOF > haproxy.cfg
+defaults
+  log global
+  option dontlognull
+  timeout connect 5000ms
+  timeout client 50000ms
+  timeout server 50000ms
+
+listen mqtt
+  bind *:1883
+  mode tcp
+  option clitcpka # For TCP keep-alive
+  timeout client 3h
+  timeout server 3h
+  option tcplog
+  balance roundrobin
+  server emqx1 emqx1:1883 check
+  server emqx2 emqx2:1883 check
+  server emqx3 emqx3:1883 check
+  server emqx4 emqx4:1883 check
+EOF
+    popd
+}
+
+create_dockercompose() {
+    cat <<EOF > docker-compose.yml
+version: '3.3'
+
+networks:
+  backplane:
+
+services:
+$(for i in $(seq 1 $N_CORE_NODES); do
+core $i
+done)
+
+$(for i in $(seq $(($N_CORE_NODES+1)) $N_NODES); do
+replicant $i
+done)
+
+  haproxy:
+    build: haproxy
+    depends_on:
+    - emqx1
+    - emqx2
+    ports:
+    - 1883:1883
+    networks:
+      backplane:
+EOF
+}
+
+create_dockerfiles
+create_dockercompose
+
+if [[ $# -lt 1 ]]; then
+    cat docker-compose.yml
+else
+    docker-compose $@
+fi

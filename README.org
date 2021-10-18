@@ -1,0 +1,18 @@
+#+TITLE: EMQ X docker cluster
+
+Set up a local EMQ X cluster with core/replicant nodes.
+Requirements: you need docker and docker-compose installed.
+
+Usage: copy =./dev-cluster= script to the emqx repo root,
+build the release: =make emqx-rel=,
+start the cluster: =./dev-cluster up=.
+
+The CLI arguments are similar to =docker-compose=.
+
+Size of the cluster and log level can be customized via environment variables:
+
+- =LOG_LEVEL=
+- =N_NODES=
+- =N_CORE_NODES=
+
+For example: =LOG_LEVEL=debug N_NODES=10 N_CORE_NODES=5 ./dev-cluster up --build --force-recreate=
