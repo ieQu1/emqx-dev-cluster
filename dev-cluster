@@ -8,6 +8,37 @@ set -euo pipefail
 
 export STATS_PORT=8898
 
+linux_distro() {
+    grep DISTRIB_ID /etc/lsb-release | cut -f2 -d'='
+}
+
+docker_image() {
+    case $(linux_distro) in
+      Arch)
+        echo "archlinux/archlinux:base-devel-20211019.0.37052"
+        ;;
+      *)
+        echo "ubuntu/21.04"
+        ;;
+    esac
+}
+
+erts_directory() {
+    pattern="_build/emqx/rel/emqx/erts-*"
+    directories=( $pattern )
+    echo "${directories[0]}"
+}
+
+assert_rel_built() {
+    ERTS_DIR=$(erts_directory)
+    if [ ! -d "$ERTS_DIR" ]
+    then
+      echo "Could not find erts directory!"
+      echo 'Did you forget to call "make emqx-rel"?'
+      exit 1
+    fi
+}
+
 host() {
     echo -n "n${1}.local"
 }
@@ -60,11 +91,13 @@ EOF
 
 create_dockerfiles() {
     # EMQ X dockerfile
-    [ -f "Dockerfile" ] ||
+    [ -f "Dockerfile" ] || {
+        assert_rel_built
+        ERTS_DIR=$(erts_directory)
         cat <<EOF > Dockerfile
-FROM ubuntu:21.04
+FROM $(docker_image)
 COPY _build/emqx/rel/emqx/bin /opt/emqx/bin
-COPY _build/emqx/rel/emqx/erts-11.1.8 /opt/emqx/erts-11.1.8
+COPY ${ERTS_DIR} /opt/emqx/${ERTS_DIR##_build/emqx/rel/emqx/}
 COPY _build/emqx/rel/emqx/etc /opt/emqx/etc
 COPY _build/emqx/rel/emqx/lib /opt/emqx/lib
 COPY _build/emqx/rel/emqx/plugins /opt/emqx/plugins
@@ -74,6 +107,8 @@ WORKDIR /opt/emqx
 
 CMD /opt/emqx/bin/emqx foreground
 EOF
+
+    }
     # Haproxy dockerfile
     mkdir -p haproxy
     pushd haproxy
