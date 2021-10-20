@@ -6,6 +6,8 @@ set -euo pipefail
 [ -z ${N_CORE_NODES+x} ] && export N_CORE_NODES=3
 [ -z ${LB_STRATEGY+x}  ] && export LB_STRATEGY=roundrobin
 
+export STATS_PORT=8898
+
 host() {
     echo -n "n${1}.local"
 }
@@ -83,6 +85,14 @@ defaults
   timeout client 50000ms
   timeout server 50000ms
 
+listen stats
+  bind *:${STATS_PORT}
+  mode http
+  stats enable
+  stats refresh 1s
+  stats show-node
+  stats uri /
+
 listen mqtt
   bind *:1883
   mode tcp
@@ -122,6 +132,7 @@ echo "    - emqx$i"
 done)
     ports:
     - 1883:1883
+    - ${STATS_PORT}:${STATS_PORT}
     networks:
       backplane:
     volumes:

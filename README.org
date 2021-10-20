@@ -17,3 +17,5 @@ Size of the cluster and log level can be customized via environment variables:
 + =LB_STRATEGY= haproxy load-balancing strategy (default = =roundrobin=)
 
 For example: =LOG_LEVEL=debug N_NODES=10 N_CORE_NODES=5 ./dev-cluster up --build --force-recreate=
+
+Haproxy statistics will be available on http://localhost:8898
