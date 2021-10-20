@@ -74,14 +74,7 @@ EOF
     # Haproxy dockerfile
     mkdir -p haproxy
     pushd haproxy
-    [ -f "Dockerfile" ] ||
-        cat <<EOF > Dockerfile
-FROM haproxy:1.7
-COPY haproxy.cfg /usr/local/etc/haproxy/haproxy.cfg
-EOF
-
-    [ -f "haproxy.cfg" ] ||
-        cat <<EOF > haproxy.cfg
+    cat <<EOF > haproxy.cfg
 defaults
   log global
   option dontlognull
@@ -97,10 +90,9 @@ listen mqtt
   timeout server 3h
   option tcplog
   balance roundrobin
-  server emqx1 emqx1:1883 check
-  server emqx2 emqx2:1883 check
-  server emqx3 emqx3:1883 check
-  server emqx4 emqx4:1883 check
+$(for i in $(seq 1 $N_NODES); do
+echo "  server emqx$i emqx$i:1883 check"
+done)
 EOF
     popd
 }
@@ -122,14 +114,17 @@ replicant $i
 done)
 
   haproxy:
-    build: haproxy
+    image: haproxy:1.7
     depends_on:
-    - emqx1
-    - emqx2
+$(for i in $(seq 1 $N_NODES); do
+echo "    - emqx$i"
+done)
     ports:
     - 1883:1883
     networks:
       backplane:
+    volumes:
+    - $(pwd)/haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
 EOF
 }
 
