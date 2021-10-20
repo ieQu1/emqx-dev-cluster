@@ -4,6 +4,7 @@ set -euo pipefail
 [ -z ${LOG_LEVEL+x}    ] && export LOG_LEVEL=notice
 [ -z ${N_NODES+x}      ] && export N_NODES=10
 [ -z ${N_CORE_NODES+x} ] && export N_CORE_NODES=3
+[ -z ${LB_STRATEGY+x}  ] && export LB_STRATEGY=roundrobin
 
 host() {
     echo -n "n${1}.local"
@@ -89,7 +90,7 @@ listen mqtt
   timeout client 3h
   timeout server 3h
   option tcplog
-  balance roundrobin
+  balance ${LB_STRATEGY}
 $(for i in $(seq 1 $N_NODES); do
 echo "  server emqx$i emqx$i:1883 check"
 done)
