@@ -5,6 +5,7 @@ set -euo pipefail
 [ -z ${N_NODES+x}      ] && export N_NODES=10
 [ -z ${N_CORE_NODES+x} ] && export N_CORE_NODES=3
 [ -z ${LB_STRATEGY+x}  ] && export LB_STRATEGY=roundrobin
+[ -z ${ROCKSDB_MODE+x} ] && export ROCKSDB_MODE=consistent
 
 export STATS_PORT=8898
 
@@ -18,22 +19,15 @@ docker_image() {
         echo "archlinux/archlinux:base-devel-20211019.0.37052"
         ;;
       *)
-        echo "ubuntu/21.04"
+        echo "ubuntu:21.04"
         ;;
     esac
 }
 
-erts_directory() {
-    pattern="_build/emqx/rel/emqx/erts-*"
-    directories=( $pattern )
-    echo "${directories[0]}"
-}
-
 assert_rel_built() {
-    ERTS_DIR=$(erts_directory)
-    if [ ! -d "$ERTS_DIR" ]
+    if [ ! -d "_build/emqx/rel/emqx" ]
     then
-      echo "Could not find erts directory!"
+      echo "Could not find release directory!"
       echo 'Did you forget to call "make emqx-rel"?'
       exit 1
     fi
@@ -51,6 +45,11 @@ build() {
     [ "${1}" -eq "1" ] && echo "build: ."
 }
 
+## Create a unique image name for a current directory
+image-name() {
+    echo -n "$(basename $(pwd))-$(pwd | md5sum | head -c5)"
+}
+
 CORE_NODES=$(for i in $(seq 1 $N_CORE_NODES); do
                  node $i
                  [ $i -eq $N_CORE_NODES ] || echo -n ','
@@ -60,7 +59,7 @@ container() {
     cat <<EOF
   emqx${1}:
     $(build $1)
-    image: emqx
+    image: $(image-name)
     hostname: $(host $1)
     networks:
       backplane:
@@ -74,6 +73,7 @@ container() {
     - "EMQX_CLUSTER__DB_BACKEND=rlog"
     - "EMQX_CLUSTER__DISCOVERY_STRATEGY=static"
     - "EMQX_CLUSTER__STATIC__SEEDS=[${CORE_NODES}]"
+    - "EMQX_CLUSTER__RLOG__ROCKSDB_SEMANTICS=${ROCKSDB_MODE}"
 EOF
 }
 
@@ -90,24 +90,25 @@ EOF
 }
 
 create_dockerfiles() {
-    # EMQ X dockerfile
+    [ -f ".dockerignore" ] || {
+        cat <<EOF > .dockerignore
+_build/emqx/rel/emqx/data/mnesia
+_build/emqx/rel/emqx/log
+_build/emqx/rel/emqx/emqx-*.tar.gz
+EOF
+    }
+
     [ -f "Dockerfile" ] || {
         assert_rel_built
-        ERTS_DIR=$(erts_directory)
         cat <<EOF > Dockerfile
 FROM $(docker_image)
-COPY _build/emqx/rel/emqx/bin /opt/emqx/bin
-COPY ${ERTS_DIR} /opt/emqx/${ERTS_DIR##_build/emqx/rel/emqx/}
-COPY _build/emqx/rel/emqx/etc /opt/emqx/etc
-COPY _build/emqx/rel/emqx/lib /opt/emqx/lib
-COPY _build/emqx/rel/emqx/plugins /opt/emqx/plugins
-COPY _build/emqx/rel/emqx/releases /opt/emqx/releases
+
+COPY _build/emqx/rel/emqx/ /opt/emqx/
 
 WORKDIR /opt/emqx
 
 CMD /opt/emqx/bin/emqx foreground
 EOF
-
     }
     # Haproxy dockerfile
     mkdir -p haproxy
