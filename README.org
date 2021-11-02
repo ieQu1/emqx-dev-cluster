@@ -19,3 +19,8 @@ Size of the cluster and log level can be customized via environment variables:
 For example: =LOG_LEVEL=debug N_NODES=10 N_CORE_NODES=5 ./dev-cluster up --build --force-recreate=
 
 Haproxy statistics will be available on http://localhost:8898
+
+The haproxy exposes port 1883 for load balancing on the emqx
+nodes. Each node also exposes their 1883 port directly on =2882 + 1=
+(e.g. emqx1 can be accessed on port 2883, emqx2 can be accessed on
+port 2884, etc).

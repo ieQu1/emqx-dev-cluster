@@ -60,6 +60,8 @@ container() {
     $(build $1)
     image: $(image-name)
     hostname: $(host $1)
+    ports:
+    - $((2882 + $1)):1883
     networks:
       backplane:
         aliases:
