@@ -71,7 +71,7 @@ container() {
     - "EMQX_LOG__CONSOLE_HANDLER__ENABLE=true"
     - "EMQX_LOG__CONSOLE_HANDLER__LEVEL=${LOG_LEVEL}"
     - "EMQX_NODE__NAME=$(node $1)"
-    - "EMQX_CLUSTER__DB_BACKEND=rlog"
+    - "EMQX_DB__BACKEND=rlog"
     - "EMQX_CLUSTER__DISCOVERY_STRATEGY=static"
     - "EMQX_CLUSTER__STATIC__SEEDS=[${CORE_NODES}]"
 EOF
@@ -84,8 +84,8 @@ core() {
 replicant() {
     container $1
     cat <<EOF
-    - "EMQX_CLUSTER__RLOG__ROLE=replicant"
-    - "EMQX_CLUSTER__RLOG__CORE_NODES=${CORE_NODES}"
+    - "EMQX_DB__ROLE=replicant"
+    - "EMQX_DB__CORE_NODES=${CORE_NODES}"
 EOF
 }
 
