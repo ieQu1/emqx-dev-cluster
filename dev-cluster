@@ -12,6 +12,10 @@ pwgen () {
     openssl rand -base64 12
 }
 
+error() {
+  awk "BEGIN { print \"$@\" > \"/dev/fd/2\" }"
+}
+
 export GRAFANA_PASS=$(pwgen)
 export SYSMON_PASS=$(pwgen)
 
@@ -30,12 +34,15 @@ docker_image() {
     esac
 }
 
-assert_rel_built() {
-    [ -d "_build/emqx/rel/emqx" ] || [ -d "_build/emqx-ee/rel/emqx" ] || {
-      echo "Could not find release directory!"
-      echo 'Did you forget to call "make emqx-rel"?'
+get_rel_dir() {
+    if [ -d "_build/emqx/rel/emqx" ]; then
+        echo "_build/emqx/rel/emqx"
+    elif [ -d "_build/emqx-ee/rel/emqx" ] ; then
+        echo "_build/emqx-ee/rel/emqx"
+    else
+      error 'Could not find release directory! Did you forget to call "make emqx-rel"?'
       exit 1
-    }
+    fi
 }
 
 host() {
@@ -103,26 +110,22 @@ EOF
 }
 
 create_dockerfiles() {
-    [ -f ".dockerignore" ] || {
-        cat <<EOF > .dockerignore
+    cat <<EOF > .dockerignore
 _build/emqx/rel/emqx/data/mnesia
 _build/emqx/rel/emqx/log
 _build/emqx/rel/emqx/emqx-*.tar.gz
 EOF
-    }
 
-    [ -f "Dockerfile" ] || {
-        assert_rel_built
-        cat <<EOF > Dockerfile
+    cat <<EOF > Dockerfile
 FROM $(docker_image)
 
-COPY _build/emqx/rel/emqx/ /opt/emqx/
+COPY $(get_rel_dir) /opt/emqx/
 
 WORKDIR /opt/emqx
 
 CMD /opt/emqx/bin/emqx foreground
 EOF
-    }
+
     # Haproxy dockerfile
     mkdir -p haproxy
     pushd haproxy
