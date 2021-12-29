@@ -8,6 +8,13 @@ set -euo pipefail
 
 export STATS_PORT=8898
 
+pwgen () {
+    openssl rand -base64 12
+}
+
+export GRAFANA_PASS=$(pwgen)
+export SYSMON_PASS=$(pwgen)
+
 linux_distro() {
     grep DISTRIB_ID /etc/lsb-release | cut -f2 -d'='
 }
@@ -24,12 +31,11 @@ docker_image() {
 }
 
 assert_rel_built() {
-    if [ ! -d "_build/emqx/rel/emqx" ]
-    then
+    [ -d "_build/emqx/rel/emqx" ] || [ -d "_build/emqx-ee/rel/emqx" ] || {
       echo "Could not find release directory!"
       echo 'Did you forget to call "make emqx-rel"?'
       exit 1
-    fi
+    }
 }
 
 host() {
@@ -60,6 +66,8 @@ container() {
     $(build $1)
     image: $(image-name)
     hostname: $(host $1)
+    depends_on:
+    - sysmon_postgres
     ports:
     - $((2882 + $1)):1883
     networks:
@@ -70,10 +78,15 @@ container() {
     environment:
     - "EMQX_LOG__CONSOLE_HANDLER__ENABLE=true"
     - "EMQX_LOG__CONSOLE_HANDLER__LEVEL=${LOG_LEVEL}"
+
     - "EMQX_NODE__NAME=$(node $1)"
-    - "EMQX_DB__BACKEND=rlog"
     - "EMQX_CLUSTER__DISCOVERY_STRATEGY=static"
-    - "EMQX_CLUSTER__STATIC__SEEDS=[${CORE_NODES}]"
+    - "EMQX_CLUSTER__STATIC__SEEDS=${CORE_NODES}"
+
+    - "EMQX_DB__BACKEND=rlog"
+
+    - "EMQX_SYSTEM_MONITOR__DB_HOSTNAME=sysmon_postgres"
+    - "EMQX_SYSTEM_MONITOR__DB_PASSWORD=${SYSMON_PASS}"
 EOF
 }
 
@@ -173,6 +186,27 @@ done)
       backplane:
     volumes:
     - $(pwd)/haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+
+  sysmon_postgres:
+    image: ghcr.io/k32/sysmon-postgres:master
+    networks:
+      backplane:
+    environment:
+      - POSTGRES_PASSWORD=$(pwgen)
+      - SYSMON_PASS=${SYSMON_PASS}
+      - GRAFANA_PASS=${GRAFANA_PASS}
+
+  sysmon_grafana:
+    image: ghcr.io/k32/sysmon-grafana:master
+    depends_on:
+    - sysmon_postgres
+    ports:
+    - 3000:3000
+    networks:
+      backplane:
+    environment:
+    - POSTGRES_PASS=${GRAFANA_PASS}
+    - POSTGRES_URL=sysmon_postgres:5432
 EOF
 }
 
