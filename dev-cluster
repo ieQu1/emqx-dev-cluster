@@ -191,7 +191,7 @@ done)
     - $(pwd)/haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
 
   sysmon_postgres:
-    image: ghcr.io/k32/sysmon-postgres:master
+    image: ghcr.io/k32/sysmon-postgres:0.1.1
     networks:
       backplane:
     environment:
@@ -200,7 +200,7 @@ done)
       - GRAFANA_PASS=${GRAFANA_PASS}
 
   sysmon_grafana:
-    image: ghcr.io/k32/sysmon-grafana:master
+    image: ghcr.io/k32/sysmon-grafana:0.1.1
     depends_on:
     - sysmon_postgres
     ports:
