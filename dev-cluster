@@ -85,6 +85,7 @@ container() {
     environment:
     - "EMQX_LOG__CONSOLE_HANDLER__ENABLE=true"
     - "EMQX_LOG__CONSOLE_HANDLER__LEVEL=${LOG_LEVEL}"
+    - "EMQX_RPC__MODE=sync"
 
     - "EMQX_NODE__NAME=$(node $1)"
     - "EMQX_CLUSTER__DISCOVERY_STRATEGY=static"
@@ -158,6 +159,18 @@ listen mqtt
 $(for i in $(seq 1 $N_NODES); do
 echo "  server emqx$i emqx$i:1883 check"
 done)
+
+listen dashboard
+  bind *:18083
+  mode http
+  timeout client 3h
+  timeout server 3h
+  option http-keep-alive
+  balance roundrobin
+  cookie SRVNAME insert
+$(for i in $(seq 1 $N_NODES); do
+echo "  server emqx$i emqx$i:18083 cookie S${i} check"
+done)
 EOF
     popd
 }
@@ -188,6 +201,7 @@ done)
     ports:
     - 1883:1883
     - ${STATS_PORT}:${STATS_PORT}
+    - 18083:18083
     networks:
       backplane:
     volumes:
