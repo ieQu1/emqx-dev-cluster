@@ -19,6 +19,38 @@ error() {
 export GRAFANA_PASS=$(pwgen)
 export SYSMON_PASS=$(pwgen)
 
+export CERTS_DIR=".ssl_certs"
+export ENVFILE=".emqx.env"
+
+create_envfile() {
+    env | grep EMQX_ > "${ENVFILE}" || true
+}
+
+create_certificates() {
+    [ -f "${CERTS_DIR}/domain.pem" ] && return 0
+    mkdir -p "${CERTS_DIR}"
+    pushd "${CERTS_DIR}"
+    # Create config:
+    cat <<EOF > domain.ext
+authorityKeyIdentifier=keyid,issuer
+basicConstraints=CA:FALSE
+subjectAltName = @alt_names
+[alt_names]
+DNS.1 = backplane
+EOF
+    set -x
+    # Create self-signed root CA:
+    openssl req -nodes -x509 -sha256 -days 1825 -newkey rsa:2048 -keyout rootCA.key -out rootCA.pem -subj "/O=LocalOrg/CN=LocalOrg-Root-CA"
+    # Create a private key:
+    openssl genrsa -out domain.key 2048
+    # Create CSR:
+    openssl req -key domain.key -new -out domain.csr -subj "/O=LocalOrg"
+    # Sign Our CSR With Root CA:
+    openssl x509 -req -CA rootCA.pem -CAkey rootCA.key -in domain.csr -out domain.pem -days 365 -CAcreateserial -extfile domain.ext
+    set +x
+    popd
+}
+
 linux_distro() {
     grep DISTRIB_ID /etc/lsb-release | cut -f2 -d'='
 }
@@ -82,6 +114,8 @@ container() {
         aliases:
           - $(host $1)
 
+    env_file:
+      - ${ENVFILE}
     environment:
     - "EMQX_LOG__CONSOLE_HANDLER__ENABLE=true"
     - "EMQX_LOG__CONSOLE_HANDLER__LEVEL=${LOG_LEVEL}"
@@ -97,6 +131,7 @@ container() {
     - "EMQX_SYSMON__TOP__DB_PASSWORD=${SYSMON_PASS}"
 
     - "EMQX_PROMETHEUS_ENABLE=true"
+    - "EMQX_RPC__ENABLE_SSL=5369"
 EOF
 }
 
@@ -123,8 +158,15 @@ EOF
 FROM $(docker_image)
 
 COPY $(get_rel_dir) /opt/emqx/
+COPY ${CERTS_DIR}/domain.pem /var/lib/emqx/ssl/
+COPY ${CERTS_DIR}/domain.key /var/lib/emqx/ssl/
+COPY ${CERTS_DIR}/rootCA.pem /var/lib/emqx/ssl/
 
 WORKDIR /opt/emqx
+ENV EMQX_RPC__DRIVER=tcp
+ENV EMQX_RPC__CERTFILE=/var/lib/emqx/ssl/domain.pem
+ENV EMQX_RPC__CACERTFILE=/var/lib/emqx/ssl/rootCA.pem
+ENV EMQX_RPC__KEYFILE=/var/lib/emqx/ssl/domain.key
 
 CMD /opt/emqx/bin/emqx foreground
 EOF
@@ -237,8 +279,10 @@ done)
 EOF
 }
 
+create_certificates
 create_dockerfiles
 create_dockercompose
+create_envfile
 
 if [[ $# -lt 1 ]]; then
     cat docker-compose.yml
