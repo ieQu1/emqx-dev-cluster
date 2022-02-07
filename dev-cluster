@@ -26,6 +26,36 @@ create_envfile() {
     env | grep EMQX_ > "${ENVFILE}" || true
 }
 
+create_prometheus_config() {
+    cat <<EOF > .prometheus
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          # - alertmanager:9093
+
+rule_files:
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+
+scrape_configs:
+  - job_name: "prometheus"
+
+    # metrics_path defaults to '/metrics'
+    # scheme defaults to 'http'.
+
+    static_configs:
+      - targets:
+$(for i in $(seq 1 $N_NODES); do
+echo "        - emqx$i:9091"
+done)
+EOF
+}
+
 create_certificates() {
     [ -f "${CERTS_DIR}/domain.pem" ] && return 0
     mkdir -p "${CERTS_DIR}"
@@ -61,7 +91,7 @@ docker_image() {
         echo "archlinux/archlinux:base-devel-20211019.0.37052"
         ;;
       *)
-        echo "ubuntu:21.04"
+        echo "ubuntu:21.10"
         ;;
     esac
 }
@@ -95,7 +125,7 @@ image-name() {
 }
 
 CORE_NODES=$(for i in $(seq 1 $N_CORE_NODES); do
-                 node $i
+                 (node $i)
                  [ $i -eq $N_CORE_NODES ] || echo -n ','
              done)
 
@@ -143,7 +173,6 @@ replicant() {
     container $1
     cat <<EOF
     - "EMQX_DB__ROLE=replicant"
-    - "EMQX_DB__CORE_NODES=${CORE_NODES}"
 EOF
 }
 
@@ -251,7 +280,7 @@ done)
 
   # Monitoring
   sysmon_postgres:
-    image: ghcr.io/k32/sysmon-postgres:0.1.2
+    image: ghcr.io/k32/sysmon-postgres:1.0.0
     networks:
       backplane:
     environment:
@@ -263,9 +292,13 @@ done)
     image: "prom/prometheus:latest"
     networks:
       backplane:
+    volumes:
+    - $(pwd)/.prometheus:/etc/prometheus/prometheus.yml
+    ports:
+    - 9090:9090
 
   sysmon_grafana:
-    image: ghcr.io/k32/sysmon-grafana:0.1.2
+    image: ghcr.io/k32/sysmon-grafana:1.0.0
     depends_on:
     - sysmon_postgres
     - sysmon_prometheus
@@ -276,9 +309,12 @@ done)
     environment:
     - POSTGRES_PASS=${GRAFANA_PASS}
     - POSTGRES_URL=sysmon_postgres:5432
+    - PROMETHEUS_URL=http://sysmon_prometheus:9090
+    - GF_AUTH_ANONYMOUS_ENABLED=true
 EOF
 }
 
+create_prometheus_config
 create_certificates
 create_dockerfiles
 create_dockercompose
