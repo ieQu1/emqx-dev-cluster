@@ -29,8 +29,8 @@ create_envfile() {
 create_prometheus_config() {
     cat <<EOF > .prometheus
 global:
-  scrape_interval: 15s
-  evaluation_interval: 15s
+  scrape_interval: 2s
+  evaluation_interval: 2s
 
 alerting:
   alertmanagers:
@@ -43,15 +43,13 @@ rule_files:
   # - "second_rules.yml"
 
 scrape_configs:
-  - job_name: "prometheus"
-
-    # metrics_path defaults to '/metrics'
-    # scheme defaults to 'http'.
+  - job_name: 'emqx'
+    scrape_interval: 2s
 
     static_configs:
       - targets:
 $(for i in $(seq 1 $N_NODES); do
-echo "        - emqx$i:9091"
+echo "        - 'emqx$i:9091'"
 done)
 EOF
 }
@@ -138,7 +136,8 @@ container() {
     depends_on:
     - sysmon_postgres
     ports:
-    - $((2882 + $1)):1883
+    - 1883
+    - 9091
     networks:
       backplane:
         aliases:
@@ -155,12 +154,12 @@ container() {
     - "EMQX_CLUSTER__DISCOVERY_STRATEGY=static"
     - "EMQX_CLUSTER__STATIC__SEEDS=[${CORE_NODES}]"
 
-    - "EMQX_DB__BACKEND=rlog"
+    - "EMQX_NODE__DB_BACKEND=rlog"
 
     - "EMQX_SYSMON__TOP__DB_HOSTNAME=sysmon_postgres"
     - "EMQX_SYSMON__TOP__DB_PASSWORD=${SYSMON_PASS}"
 
-    - "EMQX_PROMETHEUS_ENABLE=true"
+    - "EMQX_PROMETHEUS__ENABLE=true"
     - "EMQX_RPC__ENABLE_SSL=5369"
 EOF
 }
@@ -172,7 +171,7 @@ core() {
 replicant() {
     container $1
     cat <<EOF
-    - "EMQX_DB__ROLE=replicant"
+    - "EMQX_NODE__DB_ROLE=replicant"
 EOF
 }
 
@@ -294,6 +293,10 @@ done)
       backplane:
     volumes:
     - $(pwd)/.prometheus:/etc/prometheus/prometheus.yml
+    depends_on:
+$(for i in $(seq 1 $N_NODES); do
+echo "    - 'emqx$i'"
+done)
     ports:
     - 9090:9090
 
