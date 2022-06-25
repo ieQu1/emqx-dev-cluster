@@ -29,28 +29,23 @@ create_envfile() {
 create_prometheus_config() {
     cat <<EOF > .prometheus
 global:
-  scrape_interval: 2s
+  scrape_interval: 1s
   evaluation_interval: 2s
-
-alerting:
-  alertmanagers:
-    - static_configs:
-        - targets:
-          # - alertmanager:9093
-
-rule_files:
-  # - "first_rules.yml"
-  # - "second_rules.yml"
 
 scrape_configs:
   - job_name: 'emqx'
-    scrape_interval: 2s
+    honor_labels: true
 
     static_configs:
       - targets:
 $(for i in $(seq 1 $N_NODES); do
-echo "        - 'emqx$i:9091'"
+echo "        - 'emqx$i:18083'"
 done)
+    metrics_path: '/api/v5/prometheus/stats'
+  - job_name: 'pushgw'
+    honor_labels: true
+    static_configs:
+      - targets: ['sysmon_pushgateway:9091']
 EOF
 }
 
@@ -153,8 +148,6 @@ container() {
     - "EMQX_NODE__NAME=$(node $1)"
     - "EMQX_CLUSTER__DISCOVERY_STRATEGY=static"
     - "EMQX_CLUSTER__STATIC__SEEDS=[${CORE_NODES}]"
-
-    - "EMQX_NODE__DB_BACKEND=rlog"
 
     - "EMQX_SYSMON__TOP__DB_HOSTNAME=sysmon_postgres"
     - "EMQX_SYSMON__TOP__DB_PASSWORD=${SYSMON_PASS}"
@@ -287,6 +280,13 @@ done)
       - SYSMON_PASS=${SYSMON_PASS}
       - GRAFANA_PASS=${GRAFANA_PASS}
 
+  sysmon_pushgateway:
+    image: "prom/pushgateway:latest"
+    networks:
+      backplane:
+    ports:
+    - 9091:9091
+
   sysmon_prometheus:
     image: "prom/prometheus:latest"
     networks:
@@ -297,6 +297,7 @@ done)
 $(for i in $(seq 1 $N_NODES); do
 echo "    - 'emqx$i'"
 done)
+    - sysmon_pushgateway
     ports:
     - 9090:9090
 
