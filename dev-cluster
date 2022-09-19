@@ -80,14 +80,27 @@ linux_distro() {
     grep DISTRIB_ID /etc/lsb-release | cut -f2 -d'='
 }
 
+linux_distro_version() {
+    grep DISTRIB_RELEASE /etc/lsb-release | cut -f2 -d'='
+}
+
 docker_image() {
     case $(linux_distro) in
       Arch)
         echo "archlinux/archlinux:base-devel-20211019.0.37052"
         ;;
-      *)
-        echo "ubuntu:22.04"
+      Ubuntu)
+        echo "ubuntu:$(linux_distro_version)"
         ;;
+    esac
+}
+
+docker_prepare() {
+    case $(linux_distro) in
+        Ubuntu)
+            echo "RUN apt-get update"
+            echo "RUN apt-get install -y libssl-dev"
+            ;;
     esac
 }
 
@@ -116,7 +129,7 @@ build() {
 
 ## Create a unique image name for a current directory
 image-name() {
-    echo -n "$(basename $(pwd))-$(pwd | md5sum | head -c5)"
+    echo -n "emqx-$(pwd | md5sum | head -c5)"
 }
 
 CORE_NODES=$(for i in $(seq 1 $N_CORE_NODES); do
@@ -180,6 +193,7 @@ EOF
 
     cat <<EOF > Dockerfile
 FROM $(docker_image)
+$(docker_prepare)
 
 # Invalidate Docker build cache
 RUN echo "$(date)"
@@ -188,6 +202,8 @@ COPY $(get_rel_dir) /opt/emqx/
 COPY ${CERTS_DIR}/domain.pem /var/lib/emqx/ssl/
 COPY ${CERTS_DIR}/domain.key /var/lib/emqx/ssl/
 COPY ${CERTS_DIR}/rootCA.pem /var/lib/emqx/ssl/
+
+COPY $(get_rel_dir) /opt/emqx/
 
 WORKDIR /opt/emqx
 ENV EMQX_RPC__DRIVER=tcp
@@ -209,6 +225,9 @@ defaults
   timeout client 50000ms
   timeout server 50000ms
 
+resolvers dockerns
+  nameserver ns1 127.0.0.11:53
+
 listen stats
   bind *:${STATS_PORT}
   mode http
@@ -225,8 +244,8 @@ listen mqtt
   timeout server 3h
   option tcplog
   balance ${LB_STRATEGY}
-$(for i in $(seq 1 $N_NODES); do
-echo "  server emqx$i emqx$i:1883 check"
+$(for i in $(seq 1 10); do
+echo "  server emqx$i emqx$i:1883 check resolvers dockerns init-addr last,libc,none"
 done)
 
 listen dashboard
