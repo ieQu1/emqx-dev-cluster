@@ -84,7 +84,7 @@ docker_image() {
         echo "archlinux/archlinux:base-devel-20211019.0.37052"
         ;;
       *)
-        echo "ubuntu:21.10"
+        echo "ubuntu:22.04"
         ;;
     esac
 }
@@ -153,6 +153,7 @@ container() {
     - "EMQX_SYSMON__TOP__DB_PASSWORD=${SYSMON_PASS}"
 
     - "EMQX_PROMETHEUS__ENABLE=true"
+    - "EMQX_PROMETHEUS__PUSH_GATEWAY_SERVER=\"http://sysmon_pushgateway:9091\""
     - "EMQX_RPC__ENABLE_SSL=5369"
 EOF
 }
