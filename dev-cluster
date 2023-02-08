@@ -16,6 +16,7 @@ error() {
   awk "BEGIN { print \"$@\" > \"/dev/fd/2\" }"
 }
 
+export ROOT_DIR=$(git rev-parse --show-toplevel)
 export GRAFANA_PASS=$(pwgen)
 export SYSMON_PASS=$(pwgen)
 
@@ -109,7 +110,10 @@ node() {
 }
 
 build() {
-    [ "${1}" -eq "1" ] && echo "build: ."
+    [ "${1}" -eq "1" ] && cat <<EOF
+    build:
+      context: "."
+EOF
 }
 
 ## Create a unique image name for a current directory
@@ -125,7 +129,7 @@ CORE_NODES=$(for i in $(seq 1 $N_CORE_NODES); do
 container() {
     cat <<EOF
   emqx${1}:
-    $(build $1)
+$(build $1)
     image: $(image-name)
     hostname: $(host $1)
     depends_on:
@@ -178,6 +182,9 @@ EOF
 
     cat <<EOF > Dockerfile
 FROM $(docker_image)
+
+# Invalidate Docker build cache
+RUN echo "$(date)"
 
 COPY $(get_rel_dir) /opt/emqx/
 COPY ${CERTS_DIR}/domain.pem /var/lib/emqx/ssl/
@@ -280,6 +287,8 @@ done)
       - POSTGRES_PASSWORD=$(pwgen)
       - SYSMON_PASS=${SYSMON_PASS}
       - GRAFANA_PASS=${GRAFANA_PASS}
+    logging:
+      driver: "none"
 
   sysmon_pushgateway:
     image: "prom/pushgateway:latest"
@@ -287,6 +296,8 @@ done)
       backplane:
     ports:
     - 9091:9091
+    logging:
+      driver: "none"
 
   sysmon_prometheus:
     image: "prom/prometheus:latest"
@@ -301,6 +312,8 @@ done)
     - sysmon_pushgateway
     ports:
     - 9090:9090
+    logging:
+      driver: "none"
 
   sysmon_grafana:
     image: ghcr.io/k32/sysmon-grafana:1.0.0
@@ -316,6 +329,8 @@ done)
     - POSTGRES_URL=sysmon_postgres:5432
     - PROMETHEUS_URL=http://sysmon_prometheus:9090
     - GF_AUTH_ANONYMOUS_ENABLED=true
+    logging:
+      driver: "none"
 EOF
 }
 
