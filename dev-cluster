@@ -111,10 +111,7 @@ node() {
 }
 
 build() {
-    [ "${1}" -eq "1" ] && cat <<EOF
-    build:
-      context: "."
-EOF
+    docker build --no-cache --tag "$(image-name)" .
 }
 
 ## Create a unique image name for a current directory
@@ -130,7 +127,6 @@ CORE_NODES=$(for i in $(seq 1 $N_CORE_NODES); do
 container() {
     cat <<EOF
   emqx${1}:
-$(build $1)
     image: $(image-name)
     hostname: $(host $1)
     depends_on:
@@ -146,6 +142,7 @@ $(build $1)
     env_file:
       - ${ENVFILE}
     environment:
+    - "EMQX_NODE__COOKIE=$(cat ~/.erlang.cookie)"
     - "EMQX_LOG__CONSOLE_HANDLER__ENABLE=true"
     - "EMQX_LOG__CONSOLE_HANDLER__LEVEL=${LOG_LEVEL}"
     - "EMQX_RPC__MODE=sync"
@@ -344,5 +341,6 @@ create_envfile
 if [[ $# -lt 1 ]]; then
     cat docker-compose.yml
 else
+    build
     docker-compose $@
 fi
