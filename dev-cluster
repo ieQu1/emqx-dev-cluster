@@ -297,7 +297,7 @@ done)
 
   # Monitoring
   sysmon_postgres:
-    image: ghcr.io/iequ1/sysmon-postgres:1.4.0
+    image: ghcr.io/iequ1/sysmon-postgres:1.5.0
     networks:
       backplane:
     environment:
@@ -333,7 +333,7 @@ done)
       driver: "none"
 
   sysmon_grafana:
-    image: ghcr.io/iequ1/sysmon-grafana:1.4.0
+    image: ghcr.io/iequ1/sysmon-grafana:1.5.0
     depends_on:
     - sysmon_postgres
     - sysmon_prometheus
