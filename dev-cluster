@@ -92,7 +92,7 @@ defaults
   log global
   option dontlognull
   timeout connect 5000ms
-  timeout client 1000ms
+  timeout client 60000ms
   timeout server 60000ms
 
 resolvers dockerns
@@ -110,7 +110,7 @@ listen mqtt
   bind *:1883
   mode tcp
   option clitcpka # For TCP keep-alive
-  timeout client 1s
+  timeout client 3h
   timeout server 3h
   option tcplog
   balance ${LB_STRATEGY}
@@ -407,9 +407,15 @@ fi
 ## Print summary:
 #############################################################################################
 echo
-echo
-echo "Haproxy monitoring:      http://localhost:${HAPROXY_STATS_PORT}"
-echo "Grafana:                 http://localhost:${GRAFANA_PORT}"
+echo "Monitoring:"
+echo "  Haproxy stats:    http://localhost:${HAPROXY_STATS_PORT}"
+echo "  Grafana:          http://localhost:${GRAFANA_PORT}"
+
+echo "Haproxy:"
+docker compose ps | awk '/haproxy/{print $1}' |
+while read container; do
+    docker inspect "${container}" --format '{{ .Name }}  {{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'
+done
 
 echo
 echo "EMQX nodes:"
