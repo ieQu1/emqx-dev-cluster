@@ -137,11 +137,13 @@ EOF
 #############################################################################################
 
 linux_distro() {
-    grep DISTRIB_ID /etc/lsb-release | cut -f2 -d'='
+    source /etc/lsb-release
+    echo "${DISTRIB_ID}"
 }
 
 linux_distro_version() {
-    grep DISTRIB_RELEASE /etc/lsb-release | cut -f2 -d'='
+    source /etc/lsb-release
+    echo "${DISTRIB_RELESE:-}"
 }
 
 tpl_dockerfile_emqx_base() {
@@ -158,6 +160,14 @@ RUN apt-get update
 RUN apt-get install -y libssl-dev
 EOF
         ;;
+      Gentoo)
+          cat <<EOF
+FROM gentoo/stage3:latest
+EOF
+        ;;
+      *)
+          exit 1
+          ;;
     esac
 }
 
@@ -280,7 +290,7 @@ done)
 
   # Monitoring
   sysmon_postgres:
-    image: ghcr.io/iequ1/sysmon-postgres:1.5.0
+    image: ghcr.io/iequ1/sysmon-postgres:1.5.2
     networks:
       backplane:
     environment:
@@ -316,7 +326,7 @@ done)
       driver: "none"
 
   sysmon_grafana:
-    image: ghcr.io/iequ1/sysmon-grafana:1.5.0
+    image: ghcr.io/iequ1/sysmon-grafana:1.5.2
     depends_on:
     - sysmon_postgres
     - sysmon_prometheus
@@ -371,7 +381,7 @@ build_emqx_base() {
     dir="emqx_base_image"
     if [ ! -f "${dir}/Dockerfile" ]; then
         mkdir -p "${dir}"
-        tpl_dockerfile_emqx_base > "${dir}/Dockerfile"
+        tpl_dockerfile_emqx_base | tee "${dir}/Dockerfile"
         docker build "${dir}" -t "${EMQX_BASE_IMAGE}"
     fi
 }
