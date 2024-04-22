@@ -32,8 +32,6 @@ error() {
 }
 
 export ROOT_DIR="$(git rev-parse --show-toplevel)"
-export GRAFANA_PASS=$(pwgen)
-export SYSMON_PASS=$(pwgen)
 
 export CERTS_DIR=".ssl_certs"
 export ENVFILE=".emqx.env"
@@ -202,6 +200,7 @@ emqx_volumes() {
         echo "    - ${REL_DIR}/${dir}:/opt/emqx/${dir}"
     done
     echo "    - ${CERTS_DIR}:/var/lib/emqx/ssl/"
+    echo "    - ${ROOT_DIR}/${TMP_DIR}/emqx.conf:/opt/emqx/etc/emqx.conf"
 }
 
 
@@ -393,6 +392,27 @@ build_emqx_image() {
     docker build . -t "${EMQX_IMAGE}"
 }
 
+prepare_emqx_conf() {
+    local file
+    file="emqx.conf"
+    if [ ! -f "${file}" ] ; then
+        cp "${REL_DIR}/etc/emqx.conf" "emqx.conf"
+    fi
+}
+
+init_secrets() {
+    local file
+    file="secrets.txt"
+    if [ ! -f "${file}" ]; then
+            cat <<EOF > "${file}"
+export GRAFANA_PASS="$(pwgen)"
+export SYSMON_PASS="$(pwgen)"
+EOF
+    fi
+    source "${file}"
+}
+
+init_secrets
 tpl_config_prometheus > prometheus.yml
 tpl_config_haproxy > haproxy.cfg
 
@@ -408,6 +428,7 @@ tpl_dockercompose > docker-compose.yml
 if [[ $# -lt 1 ]]; then
     cat docker-compose.yml
 else
+    prepare_emqx_conf
     build_emqx_image
     docker compose $@
 fi
