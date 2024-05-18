@@ -275,6 +275,7 @@ done)
   haproxy:
     image: haproxy:1.7
     depends_on:
+
 $(for i in $(seq 1 $N_NODES); do
 echo "    - emqx$i"
 done)
@@ -325,7 +326,7 @@ done)
       driver: "none"
 
   sysmon_grafana:
-    image: ghcr.io/iequ1/sysmon-grafana:1.5.2
+    image: ghcr.io/iequ1/sysmon-grafana:1.5.3
     depends_on:
     - sysmon_postgres
     - sysmon_prometheus
