@@ -37,10 +37,8 @@ export CERTS_DIR=".ssl_certs"
 export ENVFILE=".emqx.env"
 
 get_rel_dir() {
-    if [ -d "_build/emqx/rel/emqx" ]; then
-        echo "_build/emqx/rel/emqx"
-    elif [ -d "_build/emqx-ee/rel/emqx" ] ; then
-        echo "_build/emqx-ee/rel/emqx"
+    if [ -d "_build/emqx-enterprise/rel/emqx" ]; then
+        echo "_build/emqx-enterprise/rel/emqx"
     else
       error 'Could not find release directory! Did you forget to call "make emqx-rel"?'
       exit 1
@@ -240,7 +238,7 @@ $(emqx_volumes)
     - "EMQX_CLUSTER__STATIC__SEEDS=[${SEEDS}]"
 
     - "EMQX_SYSMON__TOP__DB_HOSTNAME=sysmon_postgres"
-    - "EMQX_SYSMON__TOP__DB_PASSWORD=${SYSMON_PASS}"
+    - "EMQX_SYSMON__TOP__DB_PASSWORD=${POSTGRES_PASS_SYSMON}"
 
     - "EMQX_PROMETHEUS__ENABLE=true"
     - "EMQX_PROMETHEUS__PUSH_GATEWAY_SERVER=\"http://sysmon_pushgateway:9091\""
@@ -280,9 +278,9 @@ $(for i in $(seq 1 $N_NODES); do
 echo "    - emqx$i"
 done)
     ports:
-    - 1883:1883
+    - 11883:1883
     - ${HAPROXY_STATS_PORT}:${HAPROXY_STATS_PORT}
-    - 18083:18083
+    - 18084:18083
     networks:
       backplane:
     volumes:
@@ -290,13 +288,14 @@ done)
 
   # Monitoring
   sysmon_postgres:
-    image: ghcr.io/iequ1/sysmon-postgres:1.5.2
+    image: ghcr.io/iequ1/sysmon-postgres:1.7.1
     networks:
       backplane:
     environment:
-      - POSTGRES_PASSWORD=${SYSMON_PASS}
-      - SYSMON_PASS=${SYSMON_PASS}
-      - GRAFANA_PASS=${GRAFANA_PASS}
+      - POSTGRES_HOST_AUTH_METHOD=password
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_PASS_SYSMON=${POSTGRES_PASS_SYSMON}
+      - POSTGRES_PASS_GRAFANA=${POSTGRES_PASS_GRAFANA}
     logging:
       driver: "none"
 
@@ -326,7 +325,7 @@ done)
       driver: "none"
 
   sysmon_grafana:
-    image: ghcr.io/iequ1/sysmon-grafana:1.5.3
+    image: ghcr.io/iequ1/sysmon-grafana:1.7.1
     depends_on:
     - sysmon_postgres
     - sysmon_prometheus
@@ -335,7 +334,7 @@ done)
     networks:
       backplane:
     environment:
-    - POSTGRES_PASS=${GRAFANA_PASS}
+    - POSTGRES_PASS_GRAFANA=${POSTGRES_PASS_GRAFANA}
     - POSTGRES_URL=sysmon_postgres:5432
     - PROMETHEUS_URL=http://sysmon_prometheus:9090
     - GF_AUTH_ANONYMOUS_ENABLED=true
@@ -405,9 +404,10 @@ init_secrets() {
     local file
     file="secrets.txt"
     if [ ! -f "${file}" ]; then
-            cat <<EOF > "${file}"
-export GRAFANA_PASS="$(pwgen)"
-export SYSMON_PASS="$(pwgen)"
+        cat <<EOF > "${file}"
+export POSTGRES_PASSWORD="$(pwgen)"
+export POSTGRES_PASS_GRAFANA="$(pwgen)"
+export POSTGRES_PASS_SYSMON="$(pwgen)"
 EOF
     fi
     source "${file}"
@@ -418,7 +418,7 @@ tpl_config_prometheus > prometheus.yml
 tpl_config_haproxy > haproxy.cfg
 
 ## Create envfile:
-env | grep EMQX_ > "${ENVFILE}" || true
+env | grep -e "^(EMQX_|_POSTGRES_)" > "${ENVFILE}" || true
 ## Render docker compose
 tpl_dockercompose > docker-compose.yml
 
