@@ -12,6 +12,7 @@ set -euo pipefail
 [ -z ${DISCOVERY+x}    ] && export DISCOVERY=static
 [ -z ${HAPROXY_STATS_PORT+x} ] && export HAPROXY_STATS_PORT=8898
 [ -z ${GRAFNA_PORT+x}  ] && export GRAFANA_PORT=3000
+[ -z ${EE+x}           ] && export EE="true"
 
 if ((N_CORE_NODES > N_NODES)); then
     export N_CORE_NODES="${N_NODES}"
@@ -37,12 +38,21 @@ export CERTS_DIR=".ssl_certs"
 export ENVFILE=".emqx.env"
 
 get_rel_dir() {
-    if [ -d "_build/emqx-enterprise/rel/emqx" ]; then
-        echo "_build/emqx-enterprise/rel/emqx"
-    else
-      error 'Could not find release directory! Did you forget to call "make emqx-rel"?'
+    local dir
+    case ${EE} in
+        true)
+            dir="_build/emqx-enterprise/rel/emqx" ;;
+        false)
+            dir="_build/emqx/rel/emqx" ;;
+        *)
+            error '$EE environment variable should be set to true or false'
+            exit 1
+    esac
+    if [ ! -d "${dir}" ]; then
+      error 'Could not find release directory ${dir}! Did you forget to call "make emqx-rel"?'
       exit 1
     fi
+    echo "${dir}"
 }
 
 export REL_DIR="${ROOT_DIR}/$(get_rel_dir)"
@@ -213,8 +223,6 @@ core() {
   emqx${1}:
     image: ${EMQX_IMAGE}
     hostname: $(tpl_hostname $1)
-    depends_on:
-    - sysmon_postgres
     ports:
     - 1883
     - 9091
@@ -222,6 +230,7 @@ core() {
       backplane:
         aliases:
           - $(tpl_hostname $1)
+      frontend:
     volumes:
 $(emqx_volumes)
 
@@ -232,13 +241,15 @@ $(emqx_volumes)
     - "EMQX_LOG__CONSOLE_HANDLER__ENABLE=true"
     - "EMQX_LOG__CONSOLE_HANDLER__LEVEL=${LOG_LEVEL}"
     - "EMQX_RPC__MODE=sync"
+    - "EMQX_LICENSE__KEY=evaluation"
 
     - "EMQX_NODE__NAME=$(tpl_nodename $1)"
     - "EMQX_CLUSTER__DISCOVERY_STRATEGY=${DISCOVERY}"
     - "EMQX_CLUSTER__STATIC__SEEDS=[${SEEDS}]"
 
     - "EMQX_SYSMON__TOP__DB_HOSTNAME=sysmon_postgres"
-    - "EMQX_SYSMON__TOP__DB_PASSWORD=${POSTGRES_PASS_SYSMON}"
+    - "EMQX_SYSMON__TOP__DB_PASSWORD=${SYSMON_PASS}"
+    - "EMQX_SYSMON__TOP__DB_NAME=system_monitor"
 
     - "EMQX_PROMETHEUS__ENABLE=true"
     - "EMQX_PROMETHEUS__PUSH_GATEWAY_SERVER=\"http://sysmon_pushgateway:9091\""
@@ -253,12 +264,20 @@ replicant() {
 EOF
 }
 
+emqx_nodes() {
+    for i in $(seq 1 $N_NODES); do
+        echo -n "'emqx$i',"
+    done
+}
+
 tpl_dockercompose() {
+    local dashboard_version="1.7.1"
     cat <<EOF
 version: '3.3'
 
 networks:
   backplane:
+  frontend:
 
 services:
 $(for i in $(seq 1 $N_CORE_NODES); do
@@ -272,11 +291,7 @@ done)
   # Load balancer
   haproxy:
     image: haproxy:1.7
-    depends_on:
-
-$(for i in $(seq 1 $N_NODES); do
-echo "    - emqx$i"
-done)
+    depends_on: [$(emqx_nodes)]
     ports:
     - 11883:1883
     - ${HAPROXY_STATS_PORT}:${HAPROXY_STATS_PORT}
@@ -288,14 +303,17 @@ done)
 
   # Monitoring
   sysmon_postgres:
-    image: ghcr.io/iequ1/sysmon-postgres:1.7.1
+    image: ghcr.io/iequ1/sysmon-postgres:${dashboard_version}
+    ports:
+      - 5432:5432
     networks:
       backplane:
     environment:
+      - POSTGRES_PASSWORD=${SYSMON_PASS}
+      - POSTGRES_PASS_SYSMON=${SYSMON_PASS}
+      - POSTGRES_PASS_GRAFANA=${GRAFANA_PASS}
       - POSTGRES_HOST_AUTH_METHOD=password
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_PASS_SYSMON=${POSTGRES_PASS_SYSMON}
-      - POSTGRES_PASS_GRAFANA=${POSTGRES_PASS_GRAFANA}
+
     logging:
       driver: "none"
 
@@ -314,18 +332,14 @@ done)
       backplane:
     volumes:
     - $(pwd)/prometheus.yml:/etc/prometheus/prometheus.yml
-    depends_on:
-$(for i in $(seq 1 $N_NODES); do
-echo "    - 'emqx$i'"
-done)
-    - sysmon_pushgateway
+    depends_on: [$(emqx_nodes) sysmon_pushgateway]
     ports:
     - 9090:9090
     logging:
       driver: "none"
 
   sysmon_grafana:
-    image: ghcr.io/iequ1/sysmon-grafana:1.7.1
+    image: ghcr.io/iequ1/sysmon-grafana:${dashboard_version}
     depends_on:
     - sysmon_postgres
     - sysmon_prometheus
@@ -334,12 +348,12 @@ done)
     networks:
       backplane:
     environment:
-    - POSTGRES_PASS_GRAFANA=${POSTGRES_PASS_GRAFANA}
+    - POSTGRES_PASS_GRAFANA=${GRAFANA_PASS}
     - POSTGRES_URL=sysmon_postgres:5432
     - PROMETHEUS_URL=http://sysmon_prometheus:9090
     - GF_AUTH_ANONYMOUS_ENABLED=true
-    logging:
-      driver: "none"
+    attach: false
+
 EOF
 }
 
@@ -380,6 +394,7 @@ build_emqx_base() {
     dir="emqx_base_image"
     if [ ! -f "${dir}/Dockerfile" ]; then
         mkdir -p "${dir}"
+        echo "Building base image ${dir}"
         tpl_dockerfile_emqx_base | tee "${dir}/Dockerfile"
         docker build "${dir}" -t "${EMQX_BASE_IMAGE}"
     fi
@@ -418,7 +433,9 @@ tpl_config_prometheus > prometheus.yml
 tpl_config_haproxy > haproxy.cfg
 
 ## Create envfile:
-env | grep -e "^(EMQX_|_POSTGRES_)" > "${ENVFILE}" || true
+cat "secrets.txt" > "${ENVFILE}"
+env | grep EMQX_ >> "${ENVFILE}" || true
+
 ## Render docker compose
 tpl_dockercompose > docker-compose.yml
 

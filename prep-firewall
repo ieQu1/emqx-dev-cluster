@@ -1,0 +1,46 @@
+#!/bin/sh
+
+set -e
+
+containers=$(docker network inspect dev-cluster_backplane |
+             jq -r '.[0].Containers | to_entries[] | "\(.value.Name) \(.value.IPv4Address)"')
+
+## Apply firewall mark $i to dev-cluster-emqx$i-1 destination:
+mk_firewall_rule() {
+    cat <<EOF
+/emqx/ {
+  match(\$1, /emqx([0-9]+)/, peer);
+  match(\$2, /([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)/, ip);
+  print "iptables -A OUTPUT -t mangle -j MARK --set-mark " peer[1] " -d " ip[1] ";"
+}
+EOF
+}
+
+## Create shaper class and filter for each peer:
+mk_shaper() {
+    local interface=$1
+    local nnodes=$2
+    echo "tc qdisc add dev ${interface} root handle 1: htb default 0;"
+    for i in $(seq 0 $nnodes); do
+        echo "tc class  add dev ${interface} parent 1: classid 1:${i} htb rate 100mbit;"
+        echo "tc filter add dev ${interface} parent 1: prio 1 handle ${i} fw flowid 1:${i};"
+    done
+}
+
+script() {
+    local nnodes=$(echo "${containers}" | wc -l)
+    cat <<EOF
+$(echo "${containers}" | awk "$(mk_firewall_rule)")
+$(mk_shaper eth0 ${nnodes})
+$(mk_shaper eth1 ${nnodes})
+EOF
+}
+
+echo "Creating iptable policy (mark corresponds to ID of emqx node):
+$(script)"
+
+for i in $(docker ps --format "{{.Names}}" | grep dev-cluster-emqx); do
+    echo "!!!! Setting firewall on ${i}... !!!!"
+    docker exec --privileged "${i}" sh -c "$(script)"
+    #docker exec --privileged "${i}" iptables -L -t mangle
+done
