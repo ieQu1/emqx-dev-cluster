@@ -248,7 +248,7 @@ $(emqx_volumes)
     - "EMQX_CLUSTER__STATIC__SEEDS=[${SEEDS}]"
 
     - "EMQX_SYSMON__TOP__DB_HOSTNAME=sysmon_postgres"
-    - "EMQX_SYSMON__TOP__DB_PASSWORD=${SYSMON_PASS}"
+    - "EMQX_SYSMON__TOP__DB_PASSWORD=${POSTGRES_PASS_SYSMON}"
     - "EMQX_SYSMON__TOP__DB_NAME=system_monitor"
 
     - "EMQX_PROMETHEUS__ENABLE=true"
@@ -309,9 +309,9 @@ done)
     networks:
       backplane:
     environment:
-      - POSTGRES_PASSWORD=${SYSMON_PASS}
-      - POSTGRES_PASS_SYSMON=${SYSMON_PASS}
-      - POSTGRES_PASS_GRAFANA=${GRAFANA_PASS}
+      - POSTGRES_PASSWORD=${POSTGRES_PASS_SYSMON}
+      - POSTGRES_PASS_SYSMON=${POSTGRES_PASS_SYSMON}
+      - POSTGRES_PASS_GRAFANA=${POSTGRES_PASS_GRAFANA}
       - POSTGRES_HOST_AUTH_METHOD=password
 
     logging:
@@ -348,7 +348,7 @@ done)
     networks:
       backplane:
     environment:
-    - POSTGRES_PASS_GRAFANA=${GRAFANA_PASS}
+    - POSTGRES_PASS_GRAFANA=${POSTGRES_PASS_GRAFANA}
     - POSTGRES_URL=sysmon_postgres:5432
     - PROMETHEUS_URL=http://sysmon_prometheus:9090
     - GF_AUTH_ANONYMOUS_ENABLED=true
