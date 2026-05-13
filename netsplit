@@ -1,21 +1,32 @@
 #!/bin/sh
-set -ex
+set -euo
 
-# Node where to apply the rule:
-at="${1}"
-# Target node:
-to="${2}"
-shift 2
+declare -a pairs
 
-container="dev-cluster-emqx${at}-1"
+case "${1}" in
+    *+*)
+        pair=(${1//+/ })
+        pairs=("${pair[0]} ${pair[1]}" "${pair[1]} ${pair[0]}")
+        shift 1
+        ;;
+    *)
+        pairs=("${1} ${2}")
+        shift 2
+        ;;
+esac
 
 runit() {
-    local interface=$1
-    shift 1
-    docker exec --privileged ${container} tc qdisc del dev "${interface}" parent 1:${to} || true
-    docker exec --privileged ${container} tc qdisc add dev "${interface}" parent 1:${to} "$@"
+    local from="${1}"
+    local to="${2}"
+    local interface="${3}"
+    local container="dev-cluster-emqx${from}-1"
+    shift 3
+    docker exec --privileged "${container}" tc qdisc del dev "${interface}" parent 1:${to} || true
+    docker exec --privileged "${container}" tc qdisc add dev "${interface}" parent 1:${to} "$@"
 }
 
-for i in $(seq 0 1); do
-    runit "eth${i}" "$@"
+for pair in "${pairs[@]}"; do
+    for interface in $(seq 0 1); do
+        runit ${pair} "eth${interface}" "$@"
+    done
 done
